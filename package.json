@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "node --test \"test/**/*.test.ts\""
+    "test": "node --test --test-timeout=60000 \"test/**/*.test.ts\""
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
