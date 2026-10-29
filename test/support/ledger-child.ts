@@ -1,11 +1,3 @@
-/**
- * Drives the ledger from a separate process, so tests can race real processes and leave records
- * behind a dead owner. Prints one JSON line with what happened.
- *
- *   ledger-child.ts <home> open <holdMs>     open a spend, hold it, then close it (holdMs < 0: exit without closing)
- *   ledger-child.ts <home> orphan <task>     open a spend, claim an attempt, spawn a detached agent stand-in, exit
- */
-
 import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { DEFAULT_TIMING } from "../../src/config.ts";

@@ -1,10 +1,3 @@
-/**
- * Every way Claude Code reports usage, turned into one domain shape. Pure: callers pass `now`.
- *
- *   1. `claude -p "/usage"` report text. Strict: anything unexpected is `unrecognized` and spending pauses.
- *   2. `rate_limit_event.rate_limit_info` in a task's stream. Lenient: it yields only the windows it can read.
- */
-
 import { isPercent } from "./model.ts";
 import type { Percent, SessionWindow, UsageSnapshot, UsageUpdate, Window, WindowName } from "./model.ts";
 
@@ -36,18 +29,6 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const YEAR_SLACK_MS = 60 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
 
-/**
- * Reads only lines that start with `Current `. Each must match the grammar, or the whole parse
- * fails. Everything else, such as the "What's contributing" breakdown, is ignored.
- *
- *   Current session: <pct>% used [· resets <when>]       (no reset clause: no window open)
- *   Current week (all models): <pct>% used · resets <when>
- *   Current week (<Model>): <pct>% used · resets <when>  (zero or more)
- *   <when> = <Mon> <day> at <h>[:<mm>]am|pm (<IANA zone>)
- *
- * The text has no year. Of the candidates in the zone's previous, current and next year, the
- * earliest instant at or after `now - 1h` wins.
- */
 export function parseUsageText(text: string, now: Date): UsageParse {
   const lines = text.split(/\r?\n/).map((l) => l.trimEnd());
   const first = lines.find((l) => l.trim() !== "");
@@ -70,7 +51,7 @@ export function parseUsageText(text: string, now: Date): UsageParse {
         session = { kind: "none", usedPct, observedAt: now };
         continue;
       }
-      const at = resolveWhen(s[2], now);
+      const at = resolveResetTime(s[2], now);
       if (at.kind !== "ok") return failure(at.reason, line);
       session = { kind: "open", usedPct, resetsAt: at.date, observedAt: now };
       continue;
@@ -79,7 +60,7 @@ export function parseUsageText(text: string, now: Date): UsageParse {
     const w = WEEK_LINE.exec(line);
     const usedPct = percentFrom(w?.[2]);
     if (!w || w[1] === undefined || w[3] === undefined || usedPct === null) return failure("malformed-window-line", line);
-    const at = resolveWhen(w[3], now);
+    const at = resolveResetTime(w[3], now);
     if (at.kind !== "ok") return failure(at.reason, line);
     const window: Window = { usedPct, resetsAt: at.date, observedAt: now };
     if (w[1] === "all models") {
@@ -108,7 +89,7 @@ function percentFrom(digits: string | undefined): Percent | null {
 
 type Resolved = { readonly kind: "ok"; readonly date: Date } | { readonly kind: "failed"; readonly reason: UsageParseFailure["reason"] };
 
-function resolveWhen(when: string, now: Date): Resolved {
+function resolveResetTime(when: string, now: Date): Resolved {
   const m = WHEN.exec(when);
   if (!m || m[1] === undefined || m[2] === undefined || m[3] === undefined || m[5] === undefined || m[6] === undefined) {
     return { kind: "failed", reason: "malformed-window-line" };
@@ -162,7 +143,6 @@ function partsOf(dtf: Intl.DateTimeFormat, instant: number): Record<string, stri
   return Object.fromEntries(dtf.formatToParts(new Date(instant)).map((p) => [p.type, p.value]));
 }
 
-/** The zone's UTC offset at an instant, in ms. */
 function offsetAt(dtf: Intl.DateTimeFormat, instant: number): number {
   const p = partsOf(dtf, instant);
   const wall = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour) % 24, Number(p.minute), Number(p.second));
@@ -173,11 +153,6 @@ function daysInMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
-/**
- * Wall-clock time in a zone to an instant, with no tz library. Tries the offsets in force a day
- * either side. A wall time that occurs twice (fall back) resolves to the earlier instant. One that
- * never occurs (spring forward) resolves to the instant after the gap.
- */
 function zonedWallTimeToInstant(
   dtf: Intl.DateTimeFormat,
   w: { readonly year: number; readonly month: number; readonly day: number; readonly hour: number; readonly minute: number },
@@ -223,7 +198,6 @@ export function sameWindow(a: { readonly resetsAt: Date }, b: { readonly resetsA
   return Math.abs(a.resetsAt.getTime() - b.resetsAt.getTime()) < 60 * 60_000;
 }
 
-/** A window the update carries replaces that window. A stream session always has a reset, so it is open. */
 export function mergeUpdate(view: UsageSnapshot, update: UsageUpdate): UsageSnapshot {
   return {
     ...view,
@@ -237,7 +211,6 @@ export type Reading =
   | { readonly kind: "none"; readonly usedPct: Percent }
   | { readonly kind: "unknown"; readonly why: "stale" | "rolled-over" };
 
-/** What policy may trust about a window right now. A stale or rolled-over reading is unknown, never zero. */
 export function readWindow(view: UsageSnapshot, name: WindowName, now: Date, maxAgeMs: number): Reading {
   const w: SessionWindow = name === "session" ? view.session : { kind: "open", ...view.week };
   if (now.getTime() - w.observedAt.getTime() > maxAgeMs) return { kind: "unknown", why: "stale" };

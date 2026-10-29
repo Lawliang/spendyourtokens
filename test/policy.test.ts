@@ -135,7 +135,13 @@ const results = {
   refused: { kind: "errored", error: { kind: "refused", reason: { kind: "api-key", source: "ANTHROPIC_API_KEY" } } },
 } as const satisfies Record<string, RunResult>;
 
-type Step = { plan: AttemptPlan["kind"] | `continue:${"partial" | "interrupted" | "failed" | "errored"}`; state: AttemptState; exited?: AgentExit; session?: SessionId | null };
+type Step = {
+  plan: AttemptPlan["kind"] | `continue:${"partial" | "interrupted" | "failed" | "errored"}`;
+  state: AttemptState;
+  exited?: AgentExit;
+  session?: SessionId | null;
+  spawned?: boolean;
+};
 
 function history(...steps: Step[]): AttemptView[] {
   return steps.map((s, i) => {
@@ -159,7 +165,7 @@ function history(...steps: Step[]): AttemptView[] {
       base: BASE,
       startedAt: NOW,
       usageBefore: null,
-      agent: null,
+      agent: s.spawned === false ? null : { process: { pid: 2, lstart: "y" }, argv: ["claude"] },
       session: s.session === undefined ? SESSION : s.session,
       exited: s.exited ?? null,
       sealed: null,
@@ -202,6 +208,12 @@ describe("taskStatus", () => {
     assert.equal(two.kind, "ready");
     const three = taskStatus(t, history({ plan: "fresh", ...p }, { plan: "continue:partial", ...p }, { plan: "continue:partial", ...p }));
     assert.ok(three.kind === "flagged" && three.why === "resumed-twice");
+  });
+
+  it("doesn't count a resume that was stopped before its agent started", () => {
+    const p = { state: ended(results.partial) };
+    const status = taskStatus(t, history({ plan: "fresh", ...p }, { plan: "continue:partial", ...p, spawned: false }, { plan: "continue:partial", ...p }));
+    assert.equal(status.kind, "ready");
   });
 
   it("counts an interruption before the agent exited as a resume", () => {
