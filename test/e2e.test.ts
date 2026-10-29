@@ -104,6 +104,14 @@ describe("syt end to end", () => {
     assert.match((await w.syt("report")).out, /no-op +noop #1/);
   });
 
+  it("exits 2 without spending when --task names a task that isn't queued", async () => {
+    const w = await world({ runs: [] });
+    const ran = await w.syt("run", "--now", "--task", "ghost");
+    assert.equal(ran.code, 2, ran.out);
+    assert.match(ran.out, /task ghost is not in the queue/);
+    assert.equal((await w.agentRuns()).length, 0);
+  });
+
   it("fails a task whose check fails, retries it once in the same session with the check output, then flags it", async () => {
     const w = await world({
       runs: [

@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-/**
- * `syt` entry point. Thin: it parses argv, loads config, makes one or two deep calls, prints what
- * report.ts renders, and picks the exit code. No policy here.
- */
 
 import { parseArgs } from "node:util";
 import { checkLogin, probeUsage } from "./claude.ts";
@@ -26,7 +22,6 @@ export type Io = {
   readonly out: (text: string) => void;
   readonly err: (text: string) => void;
   readonly cwd: string;
-  /** Called only by `syt run`, so other commands keep the default Ctrl-C. */
   readonly brakes: () => Brakes;
 };
 
@@ -205,7 +200,6 @@ async function report(args: readonly string[], env: Env, io: Io): Promise<ExitCo
   return EXIT.ok;
 }
 
-/** The first SIGINT/SIGTERM/SIGHUP stops agents at their next turn; the second kills them. */
 export function brakesFromSignals(proc: NodeJS.Process): Brakes {
   const stop = new AbortController();
   const kill = new AbortController();
@@ -214,7 +208,6 @@ export function brakesFromSignals(proc: NodeJS.Process): Brakes {
   return { stop: stop.signal, kill: kill.signal };
 }
 
-/** busy 3, refused 1, ran 0, including runs that halted on a reserve, which is the normal ending. */
 export function exitCodeFor(summary: SpendSummary): ExitCode {
   switch (summary.kind) {
     case "busy":
@@ -222,7 +215,7 @@ export function exitCodeFor(summary: SpendSummary): ExitCode {
     case "refused":
       return EXIT.refused;
     case "ran":
-      return EXIT.ok;
+      return summary.halt.kind === "task-not-runnable" && summary.halt.status === "missing" ? EXIT.badInput : EXIT.ok;
   }
 }
 
