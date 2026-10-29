@@ -12,7 +12,6 @@ import type { Invocation, Scenario } from "./fake-claude.ts";
 
 export const FAKE_CLAUDE = fileURLToPath(new URL("./fake-claude.ts", import.meta.url));
 export const FIXTURES = fileURLToPath(new URL("./fixtures", import.meta.url));
-/** When the stream fixtures were recorded. Their usage windows are current relative to this instant. */
 export const RECORDED_AT = new Date("2026-10-28T19:05:00-07:00");
 
 const made: string[] = [];
@@ -30,7 +29,6 @@ export function plainEnv(home: AbsPath, now = () => RECORDED_AT): Env {
   return { home, claudeBin: "/nonexistent/claude", now, timing: DEFAULT_TIMING, vars: { PATH: process.env.PATH } };
 }
 
-/** Starts at RECORDED_AT and runs at real speed. `jump` moves it forward for time-based rules. */
 export function testClock(start = RECORDED_AT) {
   const t0 = Date.now();
   let offset = 0;

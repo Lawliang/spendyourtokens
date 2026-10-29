@@ -1,16 +1,3 @@
-/**
- * The ledger: syt's own records, as JSON files with exactly one writer each.
- *
- *   spends/<n>.json                               one per spend run
- *   runs/<task>/<n>.json                          one per attempt
- *   logs/<task>/<n>.{jsonl,stderr.log,check.log}  the attempt's raw output
- *
- * One primitive does the coordination: a numbered exclusive claim. The claimant writes the full
- * record to a temp file and `link()`s it to `<n>.json`, which fails with EEXIST instead of
- * overwriting. Only the claimant rewrites the file afterwards, by temp file and `rename()`. A crash
- * leaves a record with no `end` and a dead owner. Readers fold liveness in, and nobody repairs it.
- */
-
 import { randomBytes } from "node:crypto";
 import { link, mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -54,13 +41,6 @@ export function runFiles(env: Env, task: TaskId, attempt: AttemptNo): RunFiles {
   };
 }
 
-/**
- * Reads every record and folds in liveness:
- *   end set                       ended
- *   end null, owner alive         live
- *   end null, owner dead          interrupted, with its agent as the orphan if that still runs
- * An unreadable file goes to `problems` and never throws.
- */
 export async function loadLedger(env: Env): Promise<Ledger> {
   const problems: string[] = [];
   const liveness = livenessCache();
@@ -145,7 +125,6 @@ async function listDir(dir: string): Promise<string[]> {
   }
 }
 
-/** `<n>.json` files in ascending order. Temp files from a claim in progress start with a dot. */
 async function numberedFiles(dir: string): Promise<{ n: number; file: string }[]> {
   return (await listDir(dir))
     .flatMap((name) => {
@@ -178,11 +157,6 @@ async function rewrite(file: string, content: unknown): Promise<void> {
 
 export type OpenSpend = { readonly kind: "opened"; readonly spend: SpendHandle } | { readonly kind: "busy"; readonly active: SpendView };
 
-/**
- * The system-wide spend lock. Refuses while any spend is live, then claims the next number. Two
- * processes can both pass the first check, so after claiming it looks again: if another live spend
- * holds a lower number, it ends its own record as `busy` and backs off.
- */
 export async function openSpend(env: Env, mode: SpendMode): Promise<OpenSpend> {
   const owner = await selfToken();
   const dir = path.join(env.home, "spends");
@@ -218,9 +192,7 @@ export type ClaimInput = {
 export type SpendHandle = {
   readonly no: SpendNo;
   readonly owner: ProcessToken;
-  /** Claims the task's next attempt number. null if someone else took it, which the spend lock rules out. */
   readonly claim: (input: ClaimInput) => Promise<AttemptHandle | null>;
-  /** Writes `end`. A second close is a no-op. */
   readonly close: (end: SpendEnd) => Promise<void>;
 };
 
@@ -265,7 +237,6 @@ function spendHandle(env: Env, record: SpendRecord, file: string): SpendHandle {
   };
 }
 
-/** Facts learned mid-attempt, written as they arrive so a crash right after still leaves them on disk. */
 export type AttemptFact =
   | { readonly kind: "agent"; readonly process: ProcessToken; readonly argv: readonly string[] }
   | { readonly kind: "session"; readonly id: SessionId }
@@ -276,9 +247,7 @@ export type AttemptHandle = {
   readonly ref: { readonly task: TaskId; readonly attempt: AttemptNo; readonly spend: SpendNo };
   readonly startedAt: Date;
   readonly files: RunFiles;
-  /** Atomic rewrite with the fact applied. Serialized, so concurrent notes can't lose each other. */
   readonly note: (fact: AttemptFact) => Promise<void>;
-  /** Writes `end`; the record is final from then on. Throws if called twice. */
   readonly finish: (end: RunEnd) => Promise<AttemptView>;
 };
 

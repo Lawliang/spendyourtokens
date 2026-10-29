@@ -1,14 +1,3 @@
-/**
- * The user's declarations of work. Two sources, one validator, one merged list.
- *
- *   <home>/queue.yaml          a YAML list, hand-edited. syt never writes it.
- *   <home>/queue.d/<id>.yaml   one task per file, created by `syt add`, then the user's.
- *
- * `syt add` from another terminal and an open editor on queue.yaml would otherwise both write one
- * file, and the editor's next save would drop the added task. With queue.d/ no file has two writers.
- * The queue holds no status. That comes from the ledger (policy.taskStatus).
- */
-
 import { randomBytes } from "node:crypto";
 import { link, mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -19,15 +8,10 @@ import { isShellCommand, isTaskId, isToolPattern } from "./model.ts";
 import type { AbsPath, Config, Priority, QueueProblem, Task, TaskId, TaskSource, ToolPattern } from "./model.ts";
 
 export type Queue = {
-  /** queue.yaml items first, then queue.d by addedAt, then by id. */
   readonly tasks: readonly Task[];
   readonly problems: readonly QueueProblem[];
 };
 
-/**
- * Reads both sources fresh, so edits made mid-run apply to the next start. A YAML syntax error
- * costs that source for this read and nothing else. An id declared twice drops every copy.
- */
 export async function loadQueue(env: Env, config: Config): Promise<Queue> {
   const problems: QueueProblem[] = [];
   const parsed: Task[] = [];
@@ -116,13 +100,6 @@ export type AddResult =
   | { readonly kind: "added"; readonly task: Task; readonly file: AbsPath }
   | { readonly kind: "invalid"; readonly problems: readonly QueueProblem[] };
 
-/**
- * Creates `queue.d/<id>.yaml` and never touches it again. The id is a slug of the prompt plus a
- * random suffix, unused in queue.yaml, queue.d/ and runs/, because reusing a deleted task's id
- * would inherit its history and branch. The input goes through the same validator as hand-written
- * entries before anything is written. The file is linked into place from a temp file, so it never
- * clobbers and a reader never sees half of it.
- */
 export async function addTask(env: Env, config: Config, input: AddInput): Promise<AddResult> {
   const doc: Record<string, unknown> = { added: env.now().toISOString(), repo: input.repo };
   if (input.priority !== undefined) doc.priority = input.priority;
@@ -177,7 +154,6 @@ function suffix(): string {
 const KEYS = new Set(["id", "repo", "prompt", "priority", "tools", "model", "max_minutes", "done_when", "kind", "added"]);
 const PRIORITIES: readonly Priority[] = ["high", "normal", "low"];
 
-/** The single validator for a task declaration, whatever its source. */
 async function parseEntry(
   raw: unknown,
   source: TaskSource,

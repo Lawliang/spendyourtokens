@@ -1,8 +1,3 @@
-/**
- * Everything a human reads: report rows, the queue table, status, spend progress. Pure: data in,
- * strings out.
- */
-
 import type {
   AbsPath,
   AttemptNo,
@@ -32,7 +27,6 @@ import { sameWindow } from "./usage.ts";
 
 export type RowOutcome = RunResult["kind"] | Exclude<AttemptState["kind"], "ended">;
 
-/** Failures first. A Record, so the compiler rejects an outcome without a rank. */
 const SEVERITY: Readonly<Record<RowOutcome, number>> = {
   failed: 0,
   errored: 1,
@@ -43,7 +37,6 @@ const SEVERITY: Readonly<Record<RowOutcome, number>> = {
   passed: 6,
 };
 
-/** Points used in each window while the attempt ran. null for a window that reset in between. */
 export type UsageDelta = { readonly sessionPts: number | null; readonly weekPts: number | null };
 
 export type ReportRow = {
@@ -59,7 +52,6 @@ export type ReportRow = {
   readonly startedAt: Date;
 };
 
-/** One row per attempt started at or after `since`, failures first, newest first within a group. */
 export function reportRows(ledger: Ledger, since: Date): readonly ReportRow[] {
   const rows: ReportRow[] = [];
   for (const attempts of ledger.attempts.values()) {
@@ -109,7 +101,6 @@ function lastLine(s: string): string {
   return s.trim().split("\n").at(-1)?.slice(0, 160) ?? "";
 }
 
-/** Each window's change while the attempt ran, when both readings describe the same window. */
 export function usageDelta(attempt: AttemptView): UsageDelta | null {
   const before = attempt.usageBefore;
   const after = attempt.state.kind === "ended" ? attempt.state.end.usageAfter : null;
@@ -131,7 +122,6 @@ function round(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
-/** `7d`, `24h`, `90m`, or an ISO date or date-time. null when unparseable. */
 export function parseSince(input: string, now: Date): Date | null {
   const rel = /^(\d+)([dhm])$/.exec(input);
   if (rel) {

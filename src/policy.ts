@@ -1,13 +1,3 @@
-/**
- * Every decision syt makes, as pure functions of data. No I/O, no clock reads.
- *
- *   admission    may a new attempt start now?
- *   stopReason   must a running attempt stop at this turn?
- *   taskStatus   what is this task's state, and its next step?
- *   planQueue    in what order do tasks run?
- *   conclude     what was the attempt's outcome?
- */
-
 import { percentOrThrow } from "./model.ts";
 import type {
   AgentExit,
@@ -40,11 +30,6 @@ export type Admission = { readonly kind: "open" } | { readonly kind: "closed"; r
 const WINDOWS: readonly WindowName[] = ["session", "week"];
 const MINUTE = 60_000;
 
-/**
- * A new attempt may start only when both windows are known, neither resets within the runway,
- * and each is below its reserve minus the start margin. A session with no open window passes.
- * Mode `manual` ignores the spend window; it is the only mode in M1.
- */
 export function admission(input: {
   readonly view: UsageSnapshot;
   readonly now: Date;
@@ -80,11 +65,6 @@ function reserveOf(limits: Limits, name: WindowName) {
   return name === "session" ? limits.sessionReservePct : limits.weekReservePct;
 }
 
-/**
- * The stop rules for one running attempt, first match wins: a reset within the guard, a window at
- * its reserve, then the time cap. An unknown window decides nothing here; the runner re-probes it
- * and stops everything if it stays unknown.
- */
 export function stopReason(input: {
   readonly view: UsageSnapshot;
   readonly now: Date;
@@ -115,22 +95,6 @@ const MAX_RESUMES = 2;
 const MAX_FAILURES = 2;
 const MAX_ERRORS = 2;
 
-/**
- * A task's state, derived from its attempts in ascending order. The whole retry policy is here.
- *
- *   no attempts                          ready(fresh)
- *   last live                            running
- *   last interrupted after its agent exited
- *                                        ready(finish): seal, check, classify, spending nothing
- *   last interrupted before that         resume unless 2 resumes already ran
- *   last passed or no-op                 done
- *   last failed                          retry with the check's output, flagged after 2 failures
- *   last partial                         resume, flagged after 2 resumes
- *   last errored                         retry, flagged after 2 errors (a refusal is not the task's error)
- *
- * Resumes count continues for partial or interrupted work that started an agent. An attempt that
- * spent nothing (a finish, or a stop that landed before the spawn) counts toward nothing.
- */
 export function taskStatus(task: Task, attempts: readonly AttemptView[]): TaskStatus {
   const last = attempts.at(-1);
   if (last === undefined) return { kind: "ready", plan: { kind: "fresh", prompt: task.prompt } };
@@ -185,7 +149,6 @@ function resultOf(a: AttemptView): RunResult | null {
   return a.state.kind === "ended" ? a.state.end.result : null;
 }
 
-/** Every attempt of a task shares one worktree, so the newest session is resumable from it. */
 function lastSession(attempts: readonly AttemptView[]): SessionId | null {
   for (let i = attempts.length - 1; i >= 0; i--) {
     const s = attempts[i]?.session;
@@ -251,7 +214,6 @@ function lastLine(s: string): string {
 
 const PRIORITY_RANK: Readonly<Record<Priority, number>> = { high: 0, normal: 1, low: 2 };
 
-/** Resumes and finishes, then fresh tasks, then failed or errored retries; then running, flagged, done. */
 function laneOf(status: TaskStatus): number {
   switch (status.kind) {
     case "ready":
@@ -272,7 +234,6 @@ function laneOf(status: TaskStatus): number {
   }
 }
 
-/** Every task with its status, in run order. Within a lane: priority, then declaration order. */
 export function planQueue(tasks: readonly Task[], ledger: Ledger): readonly QueueEntry[] {
   return tasks
     .map((task) => ({ task, status: taskStatus(task, ledger.attempts.get(task.id) ?? []) }))
@@ -283,10 +244,6 @@ export type Next =
   | { readonly kind: "run"; readonly task: Task; readonly plan: AttemptPlan }
   | { readonly kind: "none"; readonly halt: HaltReason };
 
-/**
- * The next attempt to start. `exclude` holds tasks this spend already tried or is running, so each
- * task runs at most once per spend. With `mode.only`, only that task, and flagged is an override.
- */
 export function pickNext(input: { readonly plan: readonly QueueEntry[]; readonly mode: SpendMode; readonly exclude: ReadonlySet<TaskId> }): Next {
   const only = input.mode.only;
   if (only !== null) {
@@ -306,13 +263,8 @@ export function pickNext(input: { readonly plan: readonly QueueEntry[]; readonly
 
 export type Conclusion =
   | { readonly kind: "final"; readonly result: RunResult }
-  /** The agent finished cleanly with a diff, so the done check decides. */
   | { readonly kind: "run-check"; readonly then: (check: CheckRun) => RunResult };
 
-/**
- * Classifies an attempt: stopped is partial, refused or crashed or an error result is errored, an
- * empty cumulative diff is no-op, and otherwise the done check decides passed or failed.
- */
 export function conclude(input: { readonly exit: AgentExit; readonly diff: DiffStat }): Conclusion {
   const { exit } = input;
   switch (exit.kind) {

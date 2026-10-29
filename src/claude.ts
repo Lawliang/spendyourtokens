@@ -1,15 +1,3 @@
-/**
- * The Claude Code CLI boundary: argv, the wire formats (auth JSON, the `/usage` envelope,
- * stream-json), process groups, stream logging, the `init` guards, and stopping at turn boundaries.
- * Nothing outside this file sees a wire type or builds an argv.
- *
- *   - argv comes from a closed set of literals here, so `--bare` and `--dangerously-skip-permissions`
- *     can't be expressed.
- *   - Spending needs a SubscriptionProof, which only checkLogin mints, for a claude.ai login.
- *   - The agent is killed before its first turn unless `init` reports apiKeySource "none" and
- *     permissionMode "dontAsk". A missing init fails the guard.
- */
-
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import type { WriteStream } from "node:fs";
@@ -40,12 +28,8 @@ import type { UsageParse } from "./usage.ts";
 
 const PROOF = Object.freeze({}) as SubscriptionProof;
 
-/**
- * `claude auth status --json`: authMethod "claude.ai" is a subscription, "api_key" is an API key,
- * loggedIn false is logged out, and anything else is unreadable, which also refuses spending.
- */
 export async function checkLogin(env: Env): Promise<Login> {
-  const r = await capture(env, ["auth", "status", "--json"]);
+  const r = await runFromSytHome(env, ["auth", "status", "--json"]);
   if (r.kind === "failed") return { kind: "unreadable", detail: r.detail };
   const json = parseJson(r.stdout);
   if (json === undefined) return { kind: "unreadable", detail: `claude auth status printed no JSON (exit ${r.code})` };
@@ -58,13 +42,8 @@ export async function checkLogin(env: Env): Promise<Login> {
 
 export type UsageProbe = UsageParse | { readonly kind: "probe-failed"; readonly detail: string };
 
-/**
- * `claude -p "/usage" --output-format json`, run from the syt home so no repo's settings apply.
- * Costs no tokens. An envelope that reports any cost or turns is rejected, so a change that makes
- * `/usage` start spending is caught instead of polled every few minutes.
- */
 export async function probeUsage(env: Env, _proof: SubscriptionProof): Promise<UsageProbe> {
-  const r = await capture(env, ["-p", "/usage", "--output-format", "json", "--setting-sources", "project,local"]);
+  const r = await runFromSytHome(env, ["-p", "/usage", "--output-format", "json", "--setting-sources", "project,local"]);
   if (r.kind === "failed") return { kind: "probe-failed", detail: r.detail };
   const json = parseJson(r.stdout);
   if (json === undefined) return { kind: "probe-failed", detail: `/usage printed no JSON (exit ${r.code})` };
@@ -82,7 +61,7 @@ export async function probeUsage(env: Env, _proof: SubscriptionProof): Promise<U
 
 type Captured = { readonly kind: "done"; readonly code: number | null; readonly stdout: string } | { readonly kind: "failed"; readonly detail: string };
 
-async function capture(env: Env, args: readonly string[]): Promise<Captured> {
+async function runFromSytHome(env: Env, args: readonly string[]): Promise<Captured> {
   await mkdir(env.home, { recursive: true });
   return new Promise((resolve) => {
     const child = spawn(env.claudeBin, args, { cwd: env.home, env: env.vars, stdio: ["ignore", "pipe", "pipe"], detached: true });
@@ -107,38 +86,26 @@ async function capture(env: Env, args: readonly string[]): Promise<Captured> {
 export type AgentRequest = {
   readonly task: Task;
   readonly plan: Exclude<AttemptPlan, { readonly kind: "finish" }>;
-  /** For a plan with a session, the directory that session ran in. */
   readonly cwd: AbsPath;
   readonly files: RunFiles;
 };
 
-/** The agent decides when (turn boundaries); the caller decides whether (pure policy). */
 export type AgentHooks = {
-  /** Once, after `init` passed the guards. */
   readonly onSession: (id: SessionId) => void;
   readonly onUsage: (update: UsageUpdate) => void;
-  /** Consulted at each turn boundary. Non-null stops the agent there. */
   readonly stopAt: () => StopReason | null;
 };
 
 export type Agent = {
   readonly process: ProcessToken;
   readonly argv: readonly string[];
-  /** Stop at the next turn boundary, or after stopGraceMs if none comes. The first reason wins. */
   readonly requestStop: (reason: StopReason) => void;
-  /** Stop now. */
   readonly kill: (reason: StopReason) => void;
-  /** Settles once, after the child is gone and the logs are flushed. Never rejects. */
   readonly exited: Promise<AgentExit>;
 };
 
 const STDERR_TAIL = 4096;
 
-/**
- * Spawns one task attempt in its own process group and resolves once it runs. Each stdout line is
- * appended to the stream log before it is parsed. Exit mapping, first match wins: refused, a clean
- * result, a stop we applied, an error result, crashed. A stop racing a clean finish is a finish.
- */
 export async function startAgent(env: Env, _proof: SubscriptionProof, req: AgentRequest, hooks: AgentHooks): Promise<Agent> {
   const argv = argvFor(req);
   await mkdir(path.dirname(req.files.stream), { recursive: true });
@@ -221,12 +188,12 @@ export async function startAgent(env: Env, _proof: SubscriptionProof, req: Agent
     const [{ code, signal }] = await Promise.all([closed, linesDone]);
     for (const t of timers) clearTimeout(t);
     await Promise.all([end(streamLog), end(stderrLog)]);
-    const finished = result as Extract<AgentExit, { kind: "finished" }> | null;
-    if (refused !== null) return { kind: "refused", reason: refused };
-    if (finished !== null && !finished.isError) return finished;
-    if (applied !== null) return { kind: "stopped", reason: applied };
-    if (finished !== null) return finished;
-    return { kind: "crashed", code, signal, stderrTail: stderrTail.trim() };
+    return classifyExit({
+      refused,
+      result: result as Extract<AgentExit, { kind: "finished" }> | null,
+      stoppedBySyt: applied,
+      crash: { kind: "crashed", code, signal, stderrTail: stderrTail.trim() },
+    });
   })();
 
   const token = (await tokenOf(pid)) ?? { pid, lstart: "" };
@@ -259,17 +226,12 @@ function denialsOf(raw: unknown): Denial[] {
 const DEFAULT_TOOLS = ["Read", "Glob", "Grep", "Edit", "Write"] as const;
 const ALWAYS_DENIED = ["Bash(git push*)", "Bash(gh *)"] as const;
 
-/**
- * Least privilege, in one place: the defaults, each confirmed repo command as `Bash(<cmd>)` and
- * `Bash(<cmd> *)`, and the task's additions. Network tools are in only when a task lists them.
- */
 export function allowlistFor(task: Task): readonly ToolPattern[] {
   const { test, lint, build } = task.repo.commands;
   const commands = [test, lint, build].filter((c) => c !== null).flatMap((c) => [`Bash(${c})`, `Bash(${c} *)`]);
   return [...new Set([...DEFAULT_TOOLS, ...commands, ...task.tools])] as ToolPattern[];
 }
 
-/** Every flag syt can pass is a literal here. A task fills only the prompt and the values of --resume, --model and --allowedTools. */
 function argvFor(req: AgentRequest): readonly string[] {
   const session = req.plan.kind === "continue" ? req.plan.session : null;
   return [
@@ -311,4 +273,17 @@ function field(value: unknown, key: string): unknown {
 
 function stringOrNull(v: unknown): string | null {
   return typeof v === "string" ? v : null;
+}
+
+function classifyExit(seen: {
+  readonly refused: RefusalReason | null;
+  readonly result: Extract<AgentExit, { kind: "finished" }> | null;
+  readonly stoppedBySyt: StopReason | null;
+  readonly crash: Extract<AgentExit, { kind: "crashed" }>;
+}): AgentExit {
+  if (seen.refused !== null) return { kind: "refused", reason: seen.refused };
+  const cleanFinishWinsOverOurStop = seen.result !== null && !seen.result.isError;
+  if (cleanFinishWinsOverOurStop) return seen.result;
+  if (seen.stoppedBySyt !== null) return { kind: "stopped", reason: seen.stoppedBySyt };
+  return seen.result ?? seen.crash;
 }

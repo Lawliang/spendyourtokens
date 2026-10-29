@@ -1,10 +1,3 @@
-/**
- * The process's surroundings (Env) and the user's settings (Config).
- *
- * Env is built once in cli.ts from process.env. Tests build their own, with a temp home, a fake
- * claude and short timings. Nothing else reads process.env.
- */
-
 import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import os from "node:os";
@@ -14,19 +7,12 @@ import { isRepoKey, isShellCommand, percentOrThrow } from "./model.ts";
 import type { AbsPath, Config, Limits, Repo, RepoKey, ShellCommand } from "./model.ts";
 
 export type Timing = {
-  /** Re-read `/usage` this often while a spend runs. */
   readonly usagePollMs: number;
-  /** Before a new start, re-read `/usage` if the last probe is older than this. */
   readonly usageFreshMs: number;
-  /** A window reading older than this is unknown. */
   readonly maxReadingAgeMs: number;
-  /** Re-check time-based stop rules for agents that haven't reached a turn boundary. */
   readonly tickMs: number;
-  /** After a stop request, wait this long for a turn boundary, then stop anyway. */
   readonly stopGraceMs: number;
-  /** SIGTERM, then SIGKILL after this long. */
   readonly killGraceMs: number;
-  /** Kill the agent if `init` hasn't arrived by now. */
   readonly initTimeoutMs: number;
   readonly probeTimeoutMs: number;
   readonly checkTimeoutMs: number;
@@ -45,17 +31,13 @@ export const DEFAULT_TIMING: Timing = {
 };
 
 export type Env = {
-  /** `SYT_HOME`, else `~/.spendyourtokens`. */
   readonly home: AbsPath;
-  /** `SYT_CLAUDE_BIN`, else `claude` on PATH. */
   readonly claudeBin: string;
   readonly now: () => Date;
   readonly timing: Timing;
-  /** The environment every child process gets, passed through untouched. */
   readonly vars: Readonly<Record<string, string | undefined>>;
 };
 
-/** A relative SYT_HOME is an error, not a guess. */
 export function envFromProcess(vars: Readonly<Record<string, string | undefined>>): Env {
   const raw = vars.SYT_HOME;
   const expanded = raw === undefined || raw === "" ? path.join(os.homedir(), ".spendyourtokens") : expandTilde(raw);
@@ -75,7 +57,6 @@ function expandTilde(input: string): string {
   return input;
 }
 
-/** Expands `~`, resolves a relative path against `base`, and normalizes. */
 export function toAbsPath(input: string, base: AbsPath): AbsPath {
   return path.resolve(base, expandTilde(input)) as AbsPath;
 }
@@ -106,10 +87,6 @@ const RESERVE_RULES: Readonly<Record<string, NumberRule>> = {
   start_runway_minutes: { min: 0, max: 120, integer: true },
 };
 
-/**
- * Parses `<home>/config.toml`. A missing file gives defaults and no repos. Strict: unknown keys,
- * out-of-range numbers, and two repos with the same path are problems, all reported at once.
- */
 export async function loadConfig(env: Env): Promise<ConfigLoad> {
   const file = path.join(env.home, "config.toml") as AbsPath;
   let text: string;
@@ -195,10 +172,6 @@ function table(value: unknown, where: string, problems: string[]): Record<string
   return {};
 }
 
-/**
- * The Repo a task's realpath names. An unconfigured repo gets its basename as key, suffixed with
- * a short hash when that collides with a configured key, and no commands.
- */
 export function resolveRepo(config: Config, realRepoPath: AbsPath): Repo {
   const configured = config.repos.find((r) => r.path === realRepoPath);
   if (configured) return configured;

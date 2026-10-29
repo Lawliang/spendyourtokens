@@ -1,8 +1,3 @@
-/**
- * Runs `syt` in its own process, like the bin, but on a clock that starts at SYT_TEST_START, so
- * a test can SIGKILL a real spend mid-attempt while the fixtures' usage windows stay current.
- */
-
 import { brakesFromSignals, main } from "../../src/cli.ts";
 import { envFromProcess } from "../../src/config.ts";
 

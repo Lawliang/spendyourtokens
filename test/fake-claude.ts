@@ -1,38 +1,19 @@
 #!/usr/bin/env node
-/**
- * A fake `claude` for tests. SYT_CLAUDE_BIN points here. It replays the recorded fixtures under
- * test/fixtures, so tests run the real runner, real git, the real ledger and real child processes,
- * and only the model is fake.
- *
- * FAKE_CLAUDE_SCENARIO names a JSON Scenario. Each invocation claims the next step with an
- * O_EXCL file next to the log, so concurrent invocations each get their own step. Every invocation
- * appends {argv, cwd} as one JSON line to `log`.
- *
- *   auth status --json                 print the `auth` fixture
- *   -p /usage --output-format json     the next `usage` step in a result envelope (the last one repeats)
- *   -p <prompt> ... stream-json        the next `runs` step: write `writeFiles` into the cwd, then
- *                                      replay the stream line by line and exit
- */
 
 import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
 export type FakeRun = {
-  /** A fixture under test/fixtures, such as "stream/task-allowlist.jsonl". */
   readonly stream: string;
   readonly writeFiles?: Readonly<Record<string, string>>;
   readonly lineDelayMs?: number;
-  /** Replay this many lines, then hang until killed. */
   readonly hangAfterLine?: number;
-  /** Replay this many lines, then exit. */
   readonly exitAfterLine?: number;
   readonly exitCode?: number;
-  /** Rewrite rate_limit_event utilizations (fractions), to push a window across its reserve. */
   readonly utilization?: { readonly session?: number; readonly week?: number };
   readonly apiKeySource?: string;
   readonly permissionMode?: string;
-  /** Rewrite every session_id, so resumes can be told apart from fresh sessions. */
   readonly sessionId?: string;
 };
 

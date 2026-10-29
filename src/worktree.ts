@@ -1,12 +1,3 @@
-/**
- * Everything that touches a git checkout: the base checkout's cleanliness, the task worktree's
- * lifecycle, sealing work into commits, and the done check. Every operation converges, because a
- * crash can interrupt any of them and the next attempt calls them again.
- *
- * Git mutations are serialized within the process, since two slots may share a repo and git takes
- * repo-wide locks. Exclusivity across processes comes from the spend lock.
- */
-
 import { spawn } from "node:child_process";
 import { open, mkdir, stat } from "node:fs/promises";
 import path from "node:path";
@@ -23,10 +14,10 @@ export function worktreePathFor(env: Env, repo: Repo, task: TaskId): AbsPath {
   return path.join(env.home, "worktrees", repo.key, task) as AbsPath;
 }
 
-let gitChain: Promise<unknown> = Promise.resolve();
-function serialized<T>(fn: () => Promise<T>): Promise<T> {
-  const next = gitChain.then(fn, fn);
-  gitChain = next.catch(() => {});
+let gitMutations: Promise<unknown> = Promise.resolve();
+function oneGitMutationAtATime<T>(fn: () => Promise<T>): Promise<T> {
+  const next = gitMutations.then(fn, fn);
+  gitMutations = next.catch(() => {});
   return next;
 }
 
@@ -52,7 +43,6 @@ async function must(cwd: string, args: readonly string[]): Promise<string> {
   return r.stdout;
 }
 
-/** The git toplevel containing `dir`, or null outside a repo. */
 export async function repoRoot(dir: string): Promise<AbsPath | null> {
   const r = await git(dir, ["rev-parse", "--show-toplevel"]);
   return r.code === 0 ? realpathOrNull(r.stdout.trim()) : null;
@@ -63,10 +53,6 @@ export type BaseState =
   | { readonly kind: "dirty"; readonly detail: string }
   | { readonly kind: "not-a-repo"; readonly detail: string };
 
-/**
- * Is the user's checkout safe to branch from? Changes to tracked files make it dirty. Untracked
- * files don't, because they never reach a worktree built from HEAD.
- */
 export async function inspectBase(repo: AbsPath): Promise<BaseState> {
   const head = await git(repo, ["rev-parse", "--verify", "-q", "HEAD^{commit}"]);
   const sha = head.stdout.trim();
@@ -80,16 +66,8 @@ export async function inspectBase(repo: AbsPath): Promise<BaseState> {
 
 export type Ensure = { readonly kind: "ready"; readonly created: boolean } | { readonly kind: "conflict"; readonly detail: string };
 
-/**
- * Converges to "path is a worktree of repo with `branch` checked out", whatever a crash left:
- *   path registered on branch          reuse
- *   path missing, branch missing       worktree add -b <branch> <path> <base>
- *   path missing, branch present       prune, then worktree add <path> <branch>
- *   path exists but isn't that worktree, or git refuses (branch checked out elsewhere)
- *                                      conflict. It never deletes a directory it can't prove is its own.
- */
 export function ensureWorktree(input: { readonly repo: AbsPath; readonly path: AbsPath; readonly branch: BranchName; readonly base: CommitSha }): Promise<Ensure> {
-  return serialized(async () => {
+  return oneGitMutationAtATime(async () => {
     const list = await git(input.repo, ["worktree", "list", "--porcelain"]);
     if (list.code !== 0) return { kind: "conflict", detail: list.stderr.trim() };
     const real = (await realpathOrNull(input.path)) ?? input.path;
@@ -128,13 +106,8 @@ function parseWorktrees(porcelain: string): { path: string; branch: string | nul
 
 const COMMIT_FLAGS = ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "--no-verify", "-q", "-m"];
 
-/**
- * Commits everything in the worktree with hooks off and the repo's own identity, then measures the
- * cumulative diff against the task's base. Runs after every agent exit and before the done check,
- * so the branch holds the work and check artifacts never get committed. A second run does nothing.
- */
 export function sealWork(input: { readonly path: AbsPath; readonly base: CommitSha; readonly message: string }): Promise<Sealed> {
-  return serialized(async () => {
+  return oneGitMutationAtATime(async () => {
     await must(input.path, ["add", "-A"]);
     const staged = await git(input.path, ["diff", "--cached", "--quiet"]);
     let commit: CommitSha | null = null;
@@ -154,9 +127,8 @@ function parseShortstat(s: string): DiffStat {
   return { files: n(/(\d+) files? changed/), insertions: n(/(\d+) insertions?\(\+\)/), deletions: n(/(\d+) deletions?\(-\)/) };
 }
 
-/** Puts the worktree back to a commit (HEAD when null): tracked edits reverted, untracked files removed, ignored files kept. */
 export function resetWorktree(input: { readonly path: AbsPath; readonly to: CommitSha | null }): Promise<void> {
-  return serialized(async () => {
+  return oneGitMutationAtATime(async () => {
     await must(input.path, ["reset", "-q", "--hard", input.to ?? "HEAD"]);
     await must(input.path, ["clean", "-fdq"]);
   });
@@ -164,11 +136,6 @@ export function resetWorktree(input: { readonly path: AbsPath; readonly to: Comm
 
 const CHECK_TAIL_LINES = 40;
 
-/**
- * Runs the done check with `/bin/sh -c` in the worktree, output to `log`. On timeout its process
- * group gets SIGTERM, then SIGKILL. Anything it left running is killed, and the worktree is reset to
- * `restore`, so a check's edits and stray files don't leak into the next attempt.
- */
 export async function runCheck(input: {
   readonly path: AbsPath;
   readonly command: ShellCommand;
@@ -187,7 +154,6 @@ export async function runCheck(input: {
         try {
           if (child.pid !== undefined) process.kill(-child.pid, signal);
         } catch {
-          // the group is already gone
         }
       };
       const timer = setTimeout(() => {

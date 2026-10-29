@@ -1,15 +1,3 @@
-/**
- * One spend run: the only place where policy, the ledger, git and the agent meet. `spend()` is the
- * whole public surface.
- *
- * State inside the process (single-threaded, so no locks):
- *   ctx.view      the one usage belief, written by probes and by every agent's usage events
- *   ctx.halt      why no new attempt may start (first reason wins; a spend-wide stop overrides)
- *   ctx.stopAll   a spend-wide stop every running agent honors at its next turn
- *   ctx.running   the live attempts
- * Across processes, openSpend makes this the only live spend, so none of it is shared.
- */
-
 import { checkLogin, probeUsage, startAgent } from "./claude.ts";
 import type { Agent, UsageProbe } from "./claude.ts";
 import type { Env } from "./config.ts";
@@ -43,7 +31,6 @@ import type { AttemptHandle, SpendHandle } from "./runs.ts";
 import { mergeUpdate, readWindow } from "./usage.ts";
 import { branchFor, ensureWorktree, inspectBase, resetWorktree, runCheck, sealWork, worktreePathFor } from "./worktree.ts";
 
-/** The first SIGINT/SIGTERM/SIGHUP aborts `stop`, the second aborts `kill`. */
 export type Brakes = { readonly stop: AbortSignal; readonly kill: AbortSignal };
 
 export type SpendEvent =
@@ -57,13 +44,11 @@ export type SpendOptions = {
   readonly mode: SpendMode;
   readonly config: Config;
   readonly brakes: Brakes;
-  /** Progress for humans. Must not throw. */
   readonly observe: (event: SpendEvent) => void;
 };
 
 export type SpendSummary =
   | { readonly kind: "busy"; readonly active: SpendView }
-  /** Preflight failed (not a subscription, `/usage` unreadable). The spend record says why. */
   | { readonly kind: "refused"; readonly spend: SpendNo; readonly halt: HaltReason }
   | {
       readonly kind: "ran";
@@ -96,14 +81,6 @@ type SpendCtx = {
   readonly tracked: Promise<unknown>[];
 };
 
-/**
- *   openSpend                          busy: return busy
- *   reap orphans of crashed spends, check the login, probe /usage
- *                                      not a subscription or unreadable: refused
- *   until nothing runs: fill free slots, then wait for one to finish
- *   timers: re-probe every usagePollMs; every tickMs apply time-based stop rules
- *   finally: close the spend with its halt reason
- */
 export async function spend(env: Env, opts: SpendOptions): Promise<SpendSummary> {
   const opened = await openSpend(env, opts.mode);
   if (opened.kind === "busy") return { kind: "busy", active: opened.active };
@@ -188,7 +165,6 @@ function describeProbe(probe: Exclude<UsageProbe, { kind: "ok" | "not-subscripti
   return probe.kind === "probe-failed" ? probe.detail : `/usage output not recognized (${probe.reason}${probe.line ? `: ${probe.line}` : ""})`;
 }
 
-/** Re-reads /usage. A failure, or a window still unknown after the fresh read, stops the whole spend. */
 function refreshUsage(ctx: SpendCtx): Promise<boolean> {
   if (ctx.proof === null) return Promise.resolve(false);
   const proof = ctx.proof;
@@ -218,7 +194,6 @@ function anyUnknown(ctx: SpendCtx, view: UsageSnapshot): boolean {
   return WINDOWS.some((name) => readWindow(view, name, now, ctx.env.timing.maxReadingAgeMs).kind === "unknown");
 }
 
-/** Applies the time-based stop rules to agents that haven't reached a turn boundary lately. */
 function tick(ctx: SpendCtx): void {
   if (ctx.view === null) return;
   if (ctx.running.size > 0 && anyUnknown(ctx, ctx.view)) void refreshUsage(ctx);
@@ -241,10 +216,6 @@ function stopFor(ctx: SpendCtx, task: Task, startedAt: Date) {
   });
 }
 
-/**
- * Starts attempts while there's a free slot: re-probe when the reading is old, check admission,
- * read the queue and ledger fresh (so edits apply), pick the next task, and find where it runs.
- */
 async function fillSlots(ctx: SpendCtx): Promise<void> {
   const { env, config, mode } = ctx;
   while (ctx.halt === null && ctx.running.size < config.limits.concurrency) {
@@ -291,7 +262,6 @@ async function fillSlots(ctx: SpendCtx): Promise<void> {
 
 type Where = { readonly kind: "here"; readonly worktree: AbsPath; readonly base: CommitSha } | { readonly kind: "skip"; readonly skip: RepoSkip };
 
-/** A fresh plan branches from the checkout's HEAD, so it needs a clean checkout. A continuation carries its own worktree. */
 async function locate(ctx: SpendCtx, task: Task, plan: AttemptPlan): Promise<Where> {
   if (plan.kind !== "fresh") return { kind: "here", worktree: plan.worktree, base: plan.base };
   const base = await inspectBase(task.repo.path);
@@ -299,7 +269,6 @@ async function locate(ctx: SpendCtx, task: Task, plan: AttemptPlan): Promise<Whe
   return { kind: "skip", skip: { repo: task.repo.key, reason: base.kind, detail: base.detail } };
 }
 
-/** One attempt, claim to finish. Never throws: an unexpected failure ends the attempt as errored. */
 async function runAttempt(ctx: SpendCtx, slot: Slot, plan: AttemptPlan, where: Extract<Where, { kind: "here" }>): Promise<AttemptView | null> {
   const { task } = slot;
   const handle = await ctx.spend.claim({ task, plan, worktree: where.worktree, branch: branchFor(task.id), base: where.base, usageBefore: ctx.view });
@@ -381,7 +350,6 @@ function setHalt(ctx: SpendCtx, reason: HaltReason): void {
   ctx.observe({ kind: "halting", reason });
 }
 
-/** No new starts, and every running agent stops at its next turn. Overrides a halt that only blocked starts. */
 function haltAll(ctx: SpendCtx, reason: SpendWideStop): void {
   if (ctx.halt === null || (ctx.halt.kind !== "user-stop" && ctx.halt.kind !== "usage-unreadable")) {
     ctx.halt = reason;
