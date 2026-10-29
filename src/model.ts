@@ -32,7 +32,7 @@ export type Percent = number & { readonly __brand: "Percent" };
 
 const TASK_ID = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const REPO_KEY = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$/;
-const TOOL = /^[A-Za-z][A-Za-z0-9_]*(?:\(.+\))?$/s;
+const TOOL = /^(?:[A-Z][A-Za-z0-9_]*|mcp__[A-Za-z0-9_-]+)(?:\(.+\))?$/s;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
