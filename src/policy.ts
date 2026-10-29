@@ -128,7 +128,8 @@ const MAX_ERRORS = 2;
  *   last partial                         resume, flagged after 2 resumes
  *   last errored                         retry, flagged after 2 errors (a refusal is not the task's error)
  *
- * Resumes count continues for partial or interrupted work. A finish counts toward nothing.
+ * Resumes count continues for partial or interrupted work that started an agent. An attempt that
+ * spent nothing (a finish, or a stop that landed before the spawn) counts toward nothing.
  */
 export function taskStatus(task: Task, attempts: readonly AttemptView[]): TaskStatus {
   const last = attempts.at(-1);
@@ -155,7 +156,7 @@ export function taskStatus(task: Task, attempts: readonly AttemptView[]): TaskSt
   });
   const capped = (count: number, max: number, why: "failed-twice" | "resumed-twice" | "errored-twice", plan: AttemptPlan): TaskStatus =>
     count >= max ? { kind: "flagged", why, next: plan } : { kind: "ready", plan };
-  const resumes = attempts.filter((a) => a.plan.kind === "continue" && (a.plan.why === "partial" || a.plan.why === "interrupted")).length;
+  const resumes = attempts.filter((a) => a.agent !== null && a.plan.kind === "continue" && (a.plan.why === "partial" || a.plan.why === "interrupted")).length;
 
   if (state.kind === "interrupted") return capped(resumes, MAX_RESUMES, "resumed-twice", resume("interrupted", ""));
 
