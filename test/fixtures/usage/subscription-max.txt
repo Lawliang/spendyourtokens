@@ -1,0 +1,30 @@
+You are currently using your subscription to power your Claude Code usage
+
+Current session: 6% used · resets Oct 28 at 10:19pm (America/Los_Angeles)
+Current week (all models): 22% used · resets Oct 29 at 8:59pm (America/Los_Angeles)
+Current week (Fable): 0% used · resets Oct 29 at 9pm (America/Los_Angeles)
+
+What's contributing to your usage?
+Approximate · sessions on this machine only · shares overlap
+
+Last 24h · 2404 requests · 14 sessions
+  73%  Start fresh when you switch tasks · run /clear
+  73%  Give "pstack:poteto-agent" subagents a cheaper model
+  52%  Stop sessions you no longer need · some ran 8 hours or more
+  38%  Review the "pstack" plugin
+  27%  Run fewer sessions at once · up to 6 at once
+  Top skills: /pstack:poteto-mode 1%
+  Top subagents: pstack:poteto-agent 28%, pstack:poteto-mode 9%, general-purpose 3%, mattpocock-skills:grilling 1%
+  Top plugins: pstack 38%, mattpocock-skills 1%
+  Top MCP servers: claude-in-chrome 9%
+
+Last 7d · 10301 requests · 63 sessions
+  75%  Start fresh when you switch tasks · run /clear
+  44%  Stop sessions you no longer need · some ran 8 hours or more
+  37%  Give "pstack:poteto-agent" subagents a cheaper model
+  17%  Turn off skills you don't use · 17k tokens per request
+  15%  Run fewer sessions at once · up to 8 at once
+  Top skills: /pstack:poteto-mode 1%
+  Top subagents: pstack:poteto-agent 11%, pstack:poteto-mode 3%, general-purpose 3%, Explore 1%
+  Top plugins: pstack 15%, mattpocock-skills 1%
+  Top MCP servers: claude-in-chrome 2%
