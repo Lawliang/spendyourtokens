@@ -18,7 +18,7 @@ This is pre-release software at milestone M1. It runs only when you type `syt ru
 `syt` is not on npm yet. Install it from a checkout.
 
 ```sh
-git clone <this repo> spendyourtokens
+git clone https://github.com/Lawliang/spendyourtokens.git
 cd spendyourtokens
 npm install
 npm run build
