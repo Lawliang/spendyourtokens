@@ -52,8 +52,6 @@ export function percentOrThrow(n: number): Percent {
   return n;
 }
 
-// config
-
 /** All user-set thresholds. Defaults live in config.ts. */
 export type Limits = {
   readonly concurrency: 1 | 2 | 3 | 4;
@@ -77,8 +75,6 @@ export type RepoCommands = {
 export type Repo = { readonly key: RepoKey; readonly path: AbsPath; readonly commands: RepoCommands };
 
 export type Config = { readonly limits: Limits; readonly repos: readonly Repo[] };
-
-// tasks (user-owned)
 
 export type Priority = "high" | "normal" | "low";
 
@@ -107,8 +103,6 @@ export type TaskSpec = Pick<Task, "prompt" | "tools" | "model" | "maxMinutes" | 
 };
 
 export type QueueProblem = { readonly where: string; readonly message: string };
-
-// usage
 
 export type WindowName = "session" | "week";
 export type Window = { readonly usedPct: Percent; readonly resetsAt: Date; readonly observedAt: Date };
@@ -139,8 +133,6 @@ export type Login =
   | { readonly kind: "api-key"; readonly source: string | null }
   | { readonly kind: "logged-out" }
   | { readonly kind: "unreadable"; readonly detail: string };
-
-// agent
 
 /** A pid plus its exact start time (`ps -o lstart=`), which survives pid reuse. */
 export type ProcessToken = { readonly pid: number; readonly lstart: string };
@@ -173,8 +165,6 @@ export type AgentExit =
   | { readonly kind: "refused"; readonly reason: RefusalReason }
   | { readonly kind: "crashed"; readonly code: number | null; readonly signal: string | null; readonly stderrTail: string };
 
-// work
-
 /** Cumulative diff of the task branch against its base, so it spans every attempt. */
 export type DiffStat = { readonly files: number; readonly insertions: number; readonly deletions: number };
 
@@ -184,8 +174,6 @@ export type Sealed = { readonly commit: CommitSha | null; readonly diff: DiffSta
 export type CheckRun =
   | { readonly kind: "exited"; readonly code: number; readonly tail: string }
   | { readonly kind: "timed-out"; readonly tail: string };
-
-// attempts (syt-owned)
 
 export type ContinueWhy = "partial" | "interrupted" | "failed" | "errored";
 
@@ -269,8 +257,6 @@ export type RunFiles = { readonly record: AbsPath; readonly stream: AbsPath; rea
 
 export type AttemptView = Omit<AttemptRecord, "end"> & { readonly state: AttemptState; readonly files: RunFiles };
 
-// spends (syt-owned)
-
 /** M1 has only `manual` (`syt run --now`). */
 export type SpendMode = { readonly kind: "manual"; readonly only: TaskId | null };
 
@@ -313,8 +299,6 @@ export type Ledger = {
   /** Unreadable or foreign files. Shown, never fatal. */
   readonly problems: readonly string[];
 };
-
-// derived task status
 
 export type FlagReason = "failed-twice" | "resumed-twice" | "errored-twice";
 

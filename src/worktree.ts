@@ -52,6 +52,12 @@ async function must(cwd: string, args: readonly string[]): Promise<string> {
   return r.stdout;
 }
 
+/** The git toplevel containing `dir`, or null outside a repo. */
+export async function repoRoot(dir: string): Promise<AbsPath | null> {
+  const r = await git(dir, ["rev-parse", "--show-toplevel"]);
+  return r.code === 0 ? realpathOrNull(r.stdout.trim()) : null;
+}
+
 export type BaseState =
   | { readonly kind: "clean"; readonly head: CommitSha }
   | { readonly kind: "dirty"; readonly detail: string }
